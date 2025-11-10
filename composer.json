@@ -1,0 +1,21 @@
+{
+    "name": "losthost/mumbot",
+    "description": "My user mode bot",
+    "minimum-stability": "dev",
+    "authors": [
+        {
+            "name": "drweb",
+            "email": "pio@pio.su"
+        }
+    ],
+    "require": {
+        "danog/madelineproto": "^8",
+        "losthost/reflexa": "dev-master",
+        "losthost/db": "^3"
+    },
+    "autoload": {
+        "psr-4": {
+            "losthost\\MUMBot\\": "src/"
+        }
+    }
+}
