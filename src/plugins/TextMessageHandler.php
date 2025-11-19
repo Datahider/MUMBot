@@ -9,6 +9,14 @@ use danog\MadelineProto\EventHandler\SimpleFilter\Incoming;
 use danog\MadelineProto\EventHandler\Filter\FilterRegex;
 use danog\MadelineProto\PluginEventHandler;
 use losthost\MUMBot\Data\UserSettings;
+use danog\MadelineProto\EventHandler\Filter\FilterMedia;
+use danog\MadelineProto\EventHandler\Filter\Media\FilterVoice;
+use danog\MadelineProto\EventHandler\Media\Voice;
+use losthost\YandexAI\YandexSpeachKitGateway;
+use function Amp\File\read;
+use losthost\DB\DB;
+
+use losthost\MUMBot\Data\MessageQueue;
 
 use losthost\ReflexA\ReflexA;
 
@@ -40,8 +48,25 @@ class TextMessageHandler extends PluginEventHandler
     }
 
 
-    #[FilterRegex('/\S/')]
-    public function aHandler(Incoming&Message $message) : void {
+    #[FilterRegex("/\S/")]
+    public function textHandler(Incoming&Message $message) : void {
+        MessageQueue::add($message->senderId, $message->chatId, $message->id, $message->message);
+    }
+    
+    #[FilterVoice()]
+    public function voiceHandler(Incoming&Message $message) : void {
+        $this->callFork(fn($msg) => $this->queueVoice($msg), $message);
+    }
+    
+    
+    public function queueVoice(Incoming&Message $message) {
+        DB::reconnect();
+        $filename = tempnam(sys_get_temp_dir(), 'voice_');
+        $message->media->downloadToFile($filename);
+        MessageQueue::add($message->senderId, $message->chatId, $message->id, $filename, MessageQueue::TYPE_VOICE);
+    }
+    
+    public function anyHandler(Incoming&Message $message) : void {
         
         error_log('got message');
         $user_id = (string)$message->chatId;
@@ -57,6 +82,36 @@ class TextMessageHandler extends PluginEventHandler
         
     }
     
+    /**
+     * Gets the text representation of the message
+     * @param Message $message
+     * @return string|null
+     */
+    protected function getText(Message $message) : ?string {
+        if ($message->message) {
+            return $message->message;
+        } elseif ($message->media && is_a($message->media, Voice::class)) {
+            
+            $filename = tempnam(sys_get_temp_dir(), 'voice_');
+            
+            $message->media->downloadToFile($filename);
+            
+            $folder_id = ReflexA::getConfig('yandex-ai', 'folder_id');
+            $stt = new YandexSpeachKitGateway($folder_id);
+            
+            $bytes = read($filename);
+            $text = $stt->recognize($bytes);
+            
+            return "Голосовое сообщение:\n$text";
+        } else {
+            return null;
+        }
+    }
+    
+    /**
+     * Processes the current message queue
+     * @param string $user_id
+     */
     protected function processMessageQueue(string $user_id) {
 
         $user_settings = UserSettings::getById($user_id);
@@ -64,11 +119,15 @@ class TextMessageHandler extends PluginEventHandler
         
         while ($message = array_shift($this->message_queue[$user_id])) {
 
-            $message->read(true);
+            $text = $this->getText($message);
+            if (!$text) {
+                continue;
+            }
+            
             $user_id = $message->chatId;
 
             $brain = new ReflexA($user_id);
-            $answer = $brain->query($message->message);
+            $answer = $brain->query($text);
 
             $len = strlen($answer);
             for ($i=0;$i<$len;$i+=$char_step) {
