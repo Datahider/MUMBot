@@ -10,9 +10,10 @@
     ],
     "require": {
         "danog/madelineproto": "^8",
-        "losthost/reflexa": "dev-master",
         "losthost/db": "^3.1",
-        "losthost/yandex-ai": "dev-master"
+        "losthost/yandex-ai": "dev-master",
+        "losthost/simple-ai-agent": "^2",
+        "losthost/background-process": "^1"
     },
     "autoload": {
         "psr-4": {

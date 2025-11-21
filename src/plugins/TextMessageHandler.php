@@ -15,6 +15,10 @@ use danog\MadelineProto\EventHandler\Media\Voice;
 use losthost\YandexAI\YandexSpeachKitGateway;
 use function Amp\File\read;
 use losthost\DB\DB;
+use losthost\DB\DBView;
+use losthost\DB\DBValue;
+use losthost\SimpleAI\SimpleAIAgent;
+use danog\MadelineProto\ParseMode;
 
 use losthost\MUMBot\Data\MessageQueue;
 
@@ -27,6 +31,9 @@ use losthost\ReflexA\ReflexA;
  */
 class TextMessageHandler extends PluginEventHandler
 {
+ 
+    const OPT_WAIT_USER = 300;
+    const OPT_PROBABILITY = 1;
     
     protected array $ai_busy = [];
     protected array $message_queue = [];
@@ -47,7 +54,83 @@ class TextMessageHandler extends PluginEventHandler
         return true;
     }
 
+    #[Cron(period: 5.0)]
+    public function setTypingStatus() {
+        $typing_user_ids = $this->getTypingIds();
+        
+        while ($typing_user_ids->next()) {
+            $this->messages->setTyping(
+                    action: ['_' => 'sendMessageTypingAction'], 
+                    peer: $typing_user_ids->user_id);
+        }
+    }
 
+    #[Cron(period: 10.0)]
+    public function sendAnswered() {
+        $answered = $this->getAnsweredMessages();
+        
+        while ($answered->next()) {
+            $this->sendMessage($answered->chat_id, $answered->answer, ParseMode::TEXT);
+            DB::exec("DELETE FROM [messagequeue] WHERE id=$answered->id");
+        }
+    }
+
+    
+    protected function getTypingIds() : DBView {
+        
+        $sql = <<<FIN
+                SELECT DISTINCT sender_id AS user_id FROM [messagequeue]
+                WHERE sender_id = chat_id AND is_typing = 1
+                FIN;
+        $view = new DBView($sql);
+        
+        return $view;
+    }
+    
+    protected function getAnsweredMessages() : DBView {
+        
+        $sql = <<<FIN
+                SELECT id, chat_id, answer FROM [messagequeue]
+                WHERE answer IS NOT NULL
+                ORDER BY received
+                FIN;
+        $view = new DBView($sql);
+        
+        return $view;
+    }
+    
+    //#[Cron(period: 60.0)]
+    public function startDispatcher(): void
+    {
+        $view = $this->getUserIdsView();
+        
+        while ($view->next()) {
+            if (random_int(1, 1) <> 1) {
+                continue;
+            }
+            
+            if ($this->getLock("$view->user_id")) {
+                //$this->releaseLock("$view->user_id");
+                $this->callFork(fn($id) => $this->userHandler($id), $view->user_id);
+            }
+        }
+    }
+    
+    
+    protected function userLoop(int $user_id) {
+    
+        error_log("userLoop started for user_id=$user_id");
+        $time = time();
+        while (time()-$time <= static::OPT_WAIT_USER) {
+            if ($this->processUserMessages($user_id)) {
+                $time = time();
+            }
+            $this->sleep(10);
+        }
+    }
+    
+    
+    
     #[FilterRegex("/\S/")]
     public function textHandler(Incoming&Message $message) : void {
         MessageQueue::add($message->senderId, $message->chatId, $message->id, $message->message);

@@ -18,6 +18,8 @@ class MessageQueue extends DBObject {
         'message_id' => 'BIGINT NOT NULL',
         'type' => 'ENUM("text", "json", "voice")', // See consts TYPE_...
         'content' => 'TEXT',
+        'is_typing' => 'TINYINT(1) NOT NULL',
+        'answer' => 'TEXT',
         'PRIMARY KEY' => 'id'
     ];
 
@@ -33,6 +35,7 @@ class MessageQueue extends DBObject {
         $me->message_id = $message_id;
         $me->type = $type;
         $me->content = $content;
+        $me->is_typing = false;
         $me->received = date_create();
         $me->write();
         return $me;
